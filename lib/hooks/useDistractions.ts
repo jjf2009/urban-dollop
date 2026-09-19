@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback } from "react";
-import { KEYS, createId, storage } from "@/lib/storage";
-import { mutate, useStoredDistractions } from "@/lib/store";
+import { createId, storage } from "@/lib/storage";
+import { useStoredDistractions } from "@/lib/store";
 import type { DistractionEvent } from "@/lib/types";
 
 export function useDistractions() {
@@ -15,10 +15,7 @@ export function useDistractions() {
       reason,
       timestamp: new Date().toISOString(),
     };
-    mutate(KEYS.distractions, storage.setDistractions, [
-      ...storage.getDistractions(),
-      event,
-    ]);
+    storage.setDistractions([...storage.getDistractions(), event]);
     return event;
   }, []);
 

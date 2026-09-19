@@ -1,47 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { KEYS, createId, storage } from "@/lib/storage";
-import { mutate, useStoredSessions } from "@/lib/store";
+import { useCallback, useEffect, useState } from "react";
+import { createId, storage } from "@/lib/storage";
+import { useStoredActive, useStoredSessions } from "@/lib/store";
 import { finalize, isRunning, pause, remainingSeconds, resume } from "@/lib/sessions";
 import type { ActiveSession, DurationMinutes } from "@/lib/types";
-
-function useStoredActive(): ActiveSession | null {
-  return useSyncExternalStore(
-    subscribeActive,
-    () => activeSnapshot(),
-    () => null,
-  );
-}
-
-let cached: { value: ActiveSession | null } | null = null;
-const activeListeners = new Set<() => void>();
-
-function activeSnapshot(): ActiveSession | null {
-  if (cached === null) cached = { value: storage.getActive() };
-  return cached.value;
-}
-
-function subscribeActive(listener: () => void) {
-  activeListeners.add(listener);
-  const onStorage = (event: StorageEvent) => {
-    if (event.key === null || event.key === KEYS.active) {
-      cached = null;
-      activeListeners.forEach((l) => l());
-    }
-  };
-  window.addEventListener("storage", onStorage);
-  return () => {
-    activeListeners.delete(listener);
-    window.removeEventListener("storage", onStorage);
-  };
-}
-
-function writeActive(next: ActiveSession | null) {
-  storage.setActive(next);
-  cached = { value: next };
-  activeListeners.forEach((l) => l());
-}
 
 export function useActiveSession() {
   const active = useStoredActive();
@@ -49,7 +12,7 @@ export function useActiveSession() {
 
   const start = useCallback((taskId: string, minutes: DurationMinutes) => {
     const now = new Date().toISOString();
-    writeActive({
+    storage.setActive({
       id: createId(),
       taskId,
       startedAt: now,
@@ -61,18 +24,18 @@ export function useActiveSession() {
 
   const pauseSession = useCallback(() => {
     const current = storage.getActive();
-    if (current) writeActive(pause(current));
+    if (current) storage.setActive(pause(current));
   }, []);
 
   const resumeSession = useCallback(() => {
     const current = storage.getActive();
-    if (current) writeActive(resume(current));
+    if (current) storage.setActive(resume(current));
   }, []);
 
   const toggle = useCallback(() => {
     const current = storage.getActive();
     if (!current) return;
-    writeActive(isRunning(current) ? pause(current) : resume(current));
+    storage.setActive(isRunning(current) ? pause(current) : resume(current));
   }, []);
 
   /** Write the session to history and clear the active slot. Returns the record. */
@@ -80,14 +43,23 @@ export function useActiveSession() {
     const current = storage.getActive();
     if (!current) return null;
     const record = finalize(current);
-    mutate(KEYS.sessions, storage.setSessions, [...storage.getSessions(), record]);
-    writeActive(null);
+    storage.setSessions([...storage.getSessions(), record]);
+    storage.setActive(null);
     return record;
   }, []);
 
-  const discard = useCallback(() => writeActive(null), []);
+  const discard = useCallback(() => storage.setActive(null), []);
 
-  return { active, sessions, start, pause: pauseSession, resume: resumeSession, toggle, finish, discard };
+  return {
+    active,
+    sessions,
+    start,
+    pause: pauseSession,
+    resume: resumeSession,
+    toggle,
+    finish,
+    discard,
+  };
 }
 
 /**
@@ -107,8 +79,6 @@ export function useCountdown(
     if (!running) return;
     let expired = false;
 
-    // Read from storage rather than closing over props — the tick always sees
-    // the newest session, including one paused or resumed in another tab.
     const tick = () => {
       const current = storage.getActive();
       if (current && remainingSeconds(current) <= 0) {

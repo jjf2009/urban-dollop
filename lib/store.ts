@@ -1,74 +1,37 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { KEYS, storage } from "./storage";
-import type { DistractionEvent, Session, Task } from "./types";
-
-type Listener = () => void;
-
-const listeners = new Set<Listener>();
+import { getState, isLoaded, hasSaveError, subscribe } from "./storage";
+import type { ActiveSession, DistractionEvent, Session, Task } from "./types";
+import { EMPTY_STATE } from "./state";
 
 /**
- * Snapshots must be referentially stable between notifications, otherwise
- * useSyncExternalStore loops forever. We cache the last parsed value per key
- * and only re-read when something invalidates it.
+ * Snapshots are slices of one module-level object that is replaced wholesale on
+ * every mutation, so they stay referentially stable between notifications —
+ * which is what useSyncExternalStore requires.
  */
-const cache = new Map<string, unknown>();
-
-function subscribe(listener: Listener): () => void {
-  listeners.add(listener);
-  // Another tab wrote to localStorage — drop our cache and re-render.
-  const onStorage = (event: StorageEvent) => {
-    if (event.key === null || event.key.startsWith("focusmode:")) {
-      cache.clear();
-      listeners.forEach((l) => l());
-    }
-  };
-  window.addEventListener("storage", onStorage);
-  return () => {
-    listeners.delete(listener);
-    window.removeEventListener("storage", onStorage);
-  };
-}
-
-function emit() {
-  listeners.forEach((l) => l());
-}
-
-function snapshot<T>(key: string, load: () => T): T {
-  if (!cache.has(key)) cache.set(key, load());
-  return cache.get(key) as T;
-}
-
-const EMPTY: never[] = [];
-
-function useStored<T>(key: string, load: () => T, serverValue: T): T {
+function useSlice<T>(select: (state: typeof EMPTY_STATE) => T): T {
   return useSyncExternalStore(
     subscribe,
-    () => snapshot(key, load),
-    () => serverValue,
+    () => select(getState()),
+    () => select(EMPTY_STATE),
   );
 }
 
-export const useStoredTasks = () =>
-  useStored<Task[]>(KEYS.tasks, storage.getTasks, EMPTY);
-export const useStoredSessions = () =>
-  useStored<Session[]>(KEYS.sessions, storage.getSessions, EMPTY);
-export const useStoredDistractions = () =>
-  useStored<DistractionEvent[]>(KEYS.distractions, storage.getDistractions, EMPTY);
+export const useStoredTasks = (): Task[] => useSlice((s) => s.tasks);
+export const useStoredSessions = (): Session[] => useSlice((s) => s.sessions);
+export const useStoredDistractions = (): DistractionEvent[] =>
+  useSlice((s) => s.distractions);
+export const useStoredActive = (): ActiveSession | null => useSlice((s) => s.active);
 
-/** Every mutation goes through here so the cache and subscribers stay in sync. */
-export function mutate<T>(key: string, persist: (value: T) => void, next: T): void {
-  persist(next);
-  cache.set(key, next);
-  emit();
-}
-
-/** True once the component has mounted on the client. */
+/** False until the JSON file has been read, so "empty" isn't shown prematurely. */
 export function useHydrated(): boolean {
-  return useSyncExternalStore(
-    () => () => {},
-    () => true,
-    () => false,
-  );
+  return useSyncExternalStore(subscribe, isLoaded, () => false);
 }
+
+/** True when the last write to disk failed. */
+export function useSaveError(): boolean {
+  return useSyncExternalStore(subscribe, hasSaveError, () => false);
+}
+
+export const useSlicedDuration = () => useSlice((s) => s.duration);

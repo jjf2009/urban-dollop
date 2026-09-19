@@ -10,6 +10,7 @@ import { TaskList } from "@/components/tasks/TaskList";
 import { Button } from "@/components/ui/Button";
 import { Section } from "@/components/ui/Section";
 import { useActiveSession } from "@/lib/hooks/useActiveSession";
+import { useSaveError } from "@/lib/store";
 import { useDayStats } from "@/lib/hooks/useDayStats";
 import { useDuration } from "@/lib/hooks/useDuration";
 import { useTasks } from "@/lib/hooks/useTasks";
@@ -28,6 +29,7 @@ export function Dashboard() {
   const { active, start } = useActiveSession();
   const [duration, setDuration] = useDuration();
   const stats = useDayStats();
+  const saveError = useSaveError();
 
   // The server has no access to the local date, so render it only after hydration.
   const today = hydrated ? formatToday(new Date()) : "";
@@ -78,6 +80,15 @@ export function Dashboard() {
             Focus is returning.
           </p>
         </header>
+
+        {saveError ? (
+          <p
+            role="status"
+            className="mb-8 rounded-[3px] border border-[#3a1e1e] bg-[#1a1010] px-3 py-2 text-xs text-danger"
+          >
+            Could not write data/focusmode.json — changes are in memory only.
+          </p>
+        ) : null}
 
         <Section label="Today">
           <TaskList
